@@ -40,7 +40,7 @@ uptime=`uptime |awk -F ',' '{print $1}' |awk '{print $3,$4}'`
 echo l_runtime="${uptime}"
 
 #获取系统安装时间
-install_time=$(stat $(which ls |grep ls |grep bin) |grep -i change |awk '{print $2" "$3}' |awk -F'.' '{print $1}')
+install_time=$(stat $(fdisk -l |grep Disk |head -n 1 |awk '{print $2}' |sed 's/://') |grep Change |awk '{print $2,$3}')
 echo l_installtime="${install_time}"
 
 #时区设置
@@ -50,23 +50,28 @@ if [ "${os_type}" == "UBUNTU" ];then
 else
     case ${systemnum} in
     7)
-        timezone=$(ls -l /etc/localtime |awk -F'/' '{print $(NF-1),$NF}' |tr ' ' '/')
+#        timezone=$(ls -l /etc/localtime |awk -F'/' '{print $(NF-1),$NF}' |tr ' ' '/')
+        timezone=$(timedatectl |grep "Time zone" |awk -F': ' '{print $2}')
         echo l_timezone="${timezone}"
     ;;
     *)
-   	timezone=$(cat /etc/sysconfig/clock |grep  ZONE |awk -F'"' '{print $2}' |grep -v ^$)
-	echo l_timezone="${timezone}"
+#        timezone=$(cat /etc/sysconfig/clock |grep  ZONE |awk -F'"' '{print $2}' |grep -v ^$)
+        timezone=$(timedatectl |grep "Time zone" |awk -F': ' '{print $2}')
+        echo l_timezone="${timezone}"
     ;;
     esac
 fi
 
 #NTP配置
 ntp_servers=""
-if [ -f /etc/ntp.conf ];then
+ntpd_or_chronyd=$(ps -ef |grep -v grep |grep ntpd 2>&1 >/dev/null && echo ntpd || ps -ef |grep -v grep |grep chronyd 2>&1 >/dev/null && echo chronyd)
+#if [ -f /etc/ntp.conf ];then
+if [ $ntpd_or_chronyd == ntpd ];then
     servers=$(cat /etc/ntp.conf 2>/dev/null |egrep -v '^(\s*)#' |grep -v ^$ |grep 'server' |grep -v "pool.ntp.org" |awk '{print $2}' |tr '\n' ';')
     [ -n "${servers}" ] && ntp_servers+="${servers}"
 fi
-if [ -f /etc/chrony.conf -a ! -f /etc/ntp.conf ];then
+#if [ -f /etc/chrony.conf -a ! -f /etc/ntp.conf ];then
+if [ $ntpd_or_chronyd == chronyd ];then
     servers=$(cat /etc/chrony.conf 2>/dev/null |egrep -v '^(\s*)#' |grep -v ^$ | grep 'server' |grep -v "pool.ntp.org" |awk '{print $2}' |tr '\n' ';')
      [ -n "${servers}" ] && ntp_servers+="${servers}"
 fi
@@ -250,8 +255,10 @@ fi
 #swap空间使用情况 l_swap
 swap=$(free -m |grep -i swap |awk '{print $2,$3,$4}')
 read a b c < <(echo ${swap})
+if [ $a != 0 ];then
 swap_used=$(printf "%d%%" $((b*100/a)))
-echo "l_swap=total###${a}@@@used###${b}@@@free###${c}@@@使用率###${swap_used}@@@@@"
+fi
+echo "l_swap=total###${a}@@@used###${b}@@@free###${c}@@@使用率###${swap_used:-0}@@@@@"
 
 
 #LVM配置 l_lvm
@@ -315,30 +322,30 @@ echo "gateway=${gateway}"
 df_info=$(timeout 5s df &>/dev/null)
 # df_info=$(df)
 if [ $? == 0 ];then
-    m=`df -hP |sed '1d' |wc -l`
+    m=`df -hP |grep -v grep |grep -v tmpfs |sed '1d' |wc -l`
     echo "l_diskpartition=["
     for ((i=1;i<=m;i++))
     do
-        disk=`df -hP |sed '1d' |sed -n "${i}p"`
-        read a b < <(echo ${disk})
+        disk=`df -hP |grep -v grep |grep -v tmpfs |sed '1d' |sed -n "${i}p"`
+        read a b c d e f < <(echo ${disk})
         if [ $i != $m ];then
-            echo '{"PartitionName": "'$a'", "Size": "'$b'"},'
+            echo '{"PartitionName": "'$a'", "Size": "'$b $e $f'"},'
         else
-            echo '{"PartitionName": "'$a'", "Size": "'$b'"}'
+            echo '{"PartitionName": "'$a'", "Size": "'$b $e $f'"}'
         fi
     done
     echo "]"
 else
-    m=`df -l -hP |sed '1d' |wc -l`
+    m=`df -l -hP |grep -v grep |grep -v tmpfs |sed '1d' |wc -l`
     echo "l_diskpartition=["
     for ((i=1;i<=m;i++))
     do
-        disk=`df -l -hP |sed '1d' |sed -n "${i}p"`
-        read a b < <(echo ${disk})
+        disk=`df -l -hP |grep -v grep |grep -v tmpfs |sed '1d' |sed -n "${i}p"`
+        read a b c d e f < <(echo ${disk})
         if [ $i != $m ];then
-            echo '{"PartitionName": "'$a'", "Size": "'$b'"},'
+            echo '{"PartitionName": "'$a'", "Size": "'$b $e $f'"},'
         else
-            echo '{"PartitionName": "'$a'", "Size": "'$b'"}'
+            echo '{"PartitionName": "'$a'", "Size": "'$b $e $f'"}'
         fi
     done
     echo "]"
